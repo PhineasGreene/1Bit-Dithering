@@ -37,7 +37,13 @@ int main(int argc, char** argv){
 
 	long y, x;
 	double h, s, input_lightness, output_lightness, error;
-	double error_buffer[width];
+
+	// Instead of changing the pixel values of the next row, which
+	// is slow, we store the amount by which we would have changed
+	// them in a buffer.
+	double* current_row_error_buffer = (double*) malloc(sizeof(double) * width);
+	double* next_row_error_buffer = (double*) malloc(sizeof(double) * width);
+	double* swap;
 
 	for(y = 0; y < height; y++){
 		input_pixels = PixelGetNextIteratorRow(input_iterator, &width);
@@ -46,36 +52,31 @@ int main(int argc, char** argv){
 				output_pixels == (PixelWand**) NULL){
 			break;
 		}
+
+		swap = current_row_error_buffer;
+		current_row_error_buffer = next_row_error_buffer;
+		next_row_error_buffer = swap;
+		for(x = 0; x < width; x++){
+			next_row_error_buffer[x] = 0;
+		}
+
 		for(x = 0; x < width; x++){
 			PixelGetHSL(input_pixels[x], &h, &s, &input_lightness);
+			input_lightness += current_row_error_buffer[x];
 			output_lightness = input_lightness > 0.5;
 			PixelSetHSL(output_pixels[x], 0, 0, output_lightness);
 			error = input_lightness - output_lightness;
 
 			if(x < width - 1){
-				PixelGetHSL(input_pixels[x + 1], &h, &s, &input_lightness);
-				output_lightness = input_lightness + error * 7 / 16;
-				PixelSetHSL(input_pixels[x + 1], 0, 0, output_lightness);
+				current_row_error_buffer[x + 1] += error * 7 / 16;
 			}
-			if(y < height - 1){
-				PixelSyncIterator(input_iterator);
-				input_pixels = PixelGetNextIteratorRow(input_iterator, &width);
-				if(x > 0){
-					PixelGetHSL(input_pixels[x - 1], &h, &s, &input_lightness);
-					output_lightness = input_lightness + error * 3 / 16;
-					PixelSetHSL(input_pixels[x - 1], 0, 0, output_lightness);
-				}
-				PixelGetHSL(input_pixels[x], &h, &s, &input_lightness);
-				output_lightness = input_lightness + error * 5 / 16;
-				PixelSetHSL(input_pixels[x], 0, 0, output_lightness);
-				if(x < width - 1){
-					PixelGetHSL(input_pixels[x + 1], &h, &s, &input_lightness);
-					output_lightness = input_lightness + error * 1 / 16;
-					PixelSetHSL(input_pixels[x + 1], 0, 0, output_lightness);
-				}
+			if(x > 0){
+				next_row_error_buffer[x - 1] += error * 3 / 16;
 			}
-			PixelSyncIterator(input_iterator);
-			input_pixels = PixelGetPreviousIteratorRow(input_iterator, &width);
+			next_row_error_buffer[x] += error * 5 / 16;
+			if(x < width - 1){
+				next_row_error_buffer[x + 1] += error / 16;
+			}
 		}
 		PixelSyncIterator(output_iterator);
 	}
